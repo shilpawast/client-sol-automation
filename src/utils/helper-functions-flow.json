@@ -1,0 +1,134 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "definition": {
+    "triggers": {
+      "manual_trigger": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "functionName": {
+                "type": "string",
+                "enum": ["validateCustomerNumber", "parseEmailContent", "formatQuoteData", "logError", "generateQuoteId"]
+              },
+              "inputData": {
+                "type": "object"
+              }
+            },
+            "required": ["functionName", "inputData"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "switch_function": {
+        "type": "Switch",
+        "expression": "@triggerBody()?['functionName']",
+        "cases": {
+          "validateCustomerNumber": {
+            "case": "validateCustomerNumber",
+            "actions": {
+              "validate_customer_format": {
+                "type": "Compose",
+                "inputs": {
+                  "isValid": "@and(not(empty(triggerBody()?['inputData']?['customerNumber'])), greater(length(triggerBody()?['inputData']?['customerNumber']), 2), lessOrEquals(length(triggerBody()?['inputData']?['customerNumber']), 20))",
+                  "customerNumber": "@triggerBody()?['inputData']?['customerNumber']",
+                  "errorMessage": "@if(empty(triggerBody()?['inputData']?['customerNumber']), 'Customer number is required', if(lessOrEquals(length(triggerBody()?['inputData']?['customerNumber']), 2), 'Customer number too short', if(greater(length(triggerBody()?['inputData']?['customerNumber']), 20), 'Customer number too long', '')))"
+                }
+              }
+            }
+          },
+          "parseEmailContent": {
+            "case": "parseEmailContent",
+            "actions": {
+              "extract_email_data": {
+                "type": "Compose",
+                "inputs": {
+                  "customerNumber": "@coalesce(first(split(last(split(triggerBody()?['inputData']?['subject'], 'Customer:')), ' ')), '')",
+                  "hasAttachments": "@greater(length(triggerBody()?['inputData']?['attachments']), 0)",
+                  "attachmentCount": "@length(triggerBody()?['inputData']?['attachments'])",
+                  "priority": "@if(contains(toLower(triggerBody()?['inputData']?['subject']), 'urgent'), 'high', 'normal')",
+                  "extractedItems": "@split(replace(replace(triggerBody()?['inputData']?['body'], '\n', '|'), '\r', ''), '|')"
+                }
+              }
+            }
+          },
+          "formatQuoteData": {
+            "case": "formatQuoteData",
+            "actions": {
+              "format_items": {
+                "type": "Select",
+                "inputs": {
+                  "from": "@triggerBody()?['inputData']?['items']",
+                  "select": {
+                    "itemNumber": "@item()?['ItemNo']",
+                    "description": "@item()?['Description']",
+                    "unitOfMeasure": "@item()?['UoM']",
+                    "cost": "@formatNumber(float(item()?['Cost']), 2)",
+                    "price": "@formatNumber(float(item()?['Price']), 2)",
+                    "vendorId": "@item()?['VendorId']",
+                    "formattedCost": "@concat('$', formatNumber(float(item()?['Cost']), 2))",
+                    "formattedPrice": "@concat('$', formatNumber(float(item()?['Price']), 2))"
+                  }
+                }
+              }
+            }
+          },
+          "logError": {
+            "case": "logError",
+            "actions": {
+              "create_error_log": {
+                "type": "Compose",
+                "inputs": {
+                  "errorId": "@guid()",
+                  "timestamp": "@utcnow()",
+                  "errorType": "@triggerBody()?['inputData']?['errorType']",
+                  "errorMessage": "@triggerBody()?['inputData']?['errorMessage']",
+                  "quoteId": "@coalesce(triggerBody()?['inputData']?['quoteId'], '')",
+                  "customerNumber": "@coalesce(triggerBody()?['inputData']?['customerNumber'], '')",
+                  "severity": "@coalesce(triggerBody()?['inputData']?['severity'], 'medium')",
+                  "stackTrace": "@coalesce(triggerBody()?['inputData']?['stackTrace'], '')"
+                }
+              }
+            }
+          },
+          "generateQuoteId": {
+            "case": "generateQuoteId",
+            "actions": {
+              "generate_structured_id": {
+                "type": "Compose",
+                "inputs": {
+                  "quoteId": "@concat('Q', formatDateTime(utcnow(), 'yyyyMMdd'), '-', take(guid(), 8))",
+                  "shortId": "@take(guid(), 8)",
+                  "timestamp": "@utcnow()",
+                  "formatted": "@concat('Quote-', formatDateTime(utcnow(), 'yyyy-MM-dd'), '-', take(guid(), 8))"
+                }
+              }
+            }
+          }
+        },
+        "default": {
+          "actions": {
+            "unknown_function_error": {
+              "type": "Compose",
+              "inputs": {
+                "error": "Unknown function requested",
+                "requestedFunction": "@triggerBody()?['functionName']",
+                "availableFunctions": ["validateCustomerNumber", "parseEmailContent", "formatQuoteData", "logError", "generateQuoteId"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "outputs": {
+      "result": {
+        "type": "object",
+        "value": "@coalesce(outputs('validate_customer_format'), outputs('extract_email_data'), outputs('format_items'), outputs('create_error_log'), outputs('generate_structured_id'), outputs('unknown_function_error'))"
+      }
+    }
+  }
+}

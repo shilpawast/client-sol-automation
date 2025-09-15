@@ -1,0 +1,234 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "definition": {
+    "triggers": {
+      "manual_trigger": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "quoteId": {
+                "type": "string"
+              },
+              "customerNumber": {
+                "type": "string"
+              },
+              "vendorEmail": {
+                "type": "string"
+              },
+              "hoursElapsed": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "quoteId",
+              "customerNumber",
+              "vendorEmail",
+              "hoursElapsed"
+            ]
+          }
+        }
+      }
+    },
+    "actions": {
+      "check_vendor_response_status": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "sharepointonline"
+            }
+          },
+          "method": "get",
+          "path": "/datasets/@{encodeURIComponent('QuoteTracking')}/tables/@{encodeURIComponent('Logs')}/items",
+          "queries": {
+            "$filter": "QuoteId eq '@{triggerBody()?['quoteId']}'"
+          }
+        }
+      },
+      "condition_vendor_not_responded": {
+        "type": "If",
+        "expression": {
+          "equals": [
+            "@body('check_vendor_response_status')?['value']?[0]?['VendorResponded']",
+            false
+          ]
+        },
+        "actions": {
+          "condition_48_hours": {
+            "type": "If",
+            "expression": {
+              "equals": [
+                "@triggerBody()?['hoursElapsed']",
+                48
+              ]
+            },
+            "actions": {
+              "send_48_hour_followup": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": {
+                    "connection": {
+                      "referenceName": "outlook"
+                    }
+                  },
+                  "method": "post",
+                  "path": "/Mail",
+                  "body": {
+                    "To": "@triggerBody()?['vendorEmail']",
+                    "Subject": "Follow-up: Quote Request - Customer @{triggerBody()?['customerNumber']} - @{triggerBody()?['quoteId']}",
+                    "Body": "Hi,\n\nThis is a follow-up on the quote request we sent 48 hours ago for Customer @{triggerBody()?['customerNumber']}.\n\nIf you have already provided the quote through other means (phone, separate email), please ignore this automated follow-up.\n\nOtherwise, we would appreciate your response at your earliest convenience.\n\nThank you,\nOEM Quote Management System"
+                  }
+                }
+              },
+              "log_48_hour_followup": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": {
+                    "connection": {
+                      "referenceName": "sharepointonline"
+                    }
+                  },
+                  "method": "post",
+                  "path": "/datasets/@{encodeURIComponent('QuoteTracking')}/tables/@{encodeURIComponent('Logs')}/items",
+                  "body": {
+                    "QuoteId": "@triggerBody()?['quoteId']",
+                    "CustomerNumber": "@triggerBody()?['customerNumber']",
+                    "Status": "48_hour_followup_sent",
+                    "VendorEmail": "@triggerBody()?['vendorEmail']",
+                    "CreatedDate": "@utcnow()",
+                    "VendorResponded": false
+                  }
+                },
+                "runAfter": {
+                  "send_48_hour_followup": [
+                    "Succeeded"
+                  ]
+                }
+              }
+            }
+          },
+          "condition_72_hours": {
+            "type": "If",
+            "expression": {
+              "equals": [
+                "@triggerBody()?['hoursElapsed']",
+                72
+              ]
+            },
+            "actions": {
+              "get_product_manager_contact": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": {
+                    "connection": {
+                      "referenceName": "sharepointonline"
+                    }
+                  },
+                  "method": "get",
+                  "path": "/datasets/@{encodeURIComponent('VendorContacts')}/tables/@{encodeURIComponent('Contacts')}/items",
+                  "queries": {
+                    "$filter": "Role eq 'Product Manager' and VendorId eq '@{body('check_vendor_response_status')?['value']?[0]?['VendorId']}'"
+                  }
+                }
+              },
+              "send_escalation_email": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": {
+                    "connection": {
+                      "referenceName": "outlook"
+                    }
+                  },
+                  "method": "post",
+                  "path": "/Mail",
+                  "body": {
+                    "To": "@body('get_product_manager_contact')?['value']?[0]?['Email']",
+                    "Cc": "@triggerBody()?['vendorEmail']",
+                    "Subject": "ESCALATION: Quote Request - Customer @{triggerBody()?['customerNumber']} - @{triggerBody()?['quoteId']}",
+                    "Body": "Dear Product Manager,\n\nWe are escalating this quote request as we have not received a response after 72 hours.\n\nCustomer: @{triggerBody()?['customerNumber']}\nQuote ID: @{triggerBody()?['quoteId']}\nVendor Contact: @{triggerBody()?['vendorEmail']}\n\nPlease follow up on this quote request urgently.\n\nThank you,\nOEM Quote Management System"
+                  }
+                },
+                "runAfter": {
+                  "get_product_manager_contact": [
+                    "Succeeded"
+                  ]
+                }
+              },
+              "log_escalation": {
+                "type": "ApiConnection",
+                "inputs": {
+                  "host": {
+                    "connection": {
+                      "referenceName": "sharepointonline"
+                    }
+                  },
+                  "method": "post",
+                  "path": "/datasets/@{encodeURIComponent('QuoteTracking')}/tables/@{encodeURIComponent('Logs')}/items",
+                  "body": {
+                    "QuoteId": "@triggerBody()?['quoteId']",
+                    "CustomerNumber": "@triggerBody()?['customerNumber']",
+                    "Status": "escalated_to_product_manager",
+                    "VendorEmail": "@triggerBody()?['vendorEmail']",
+                    "EscalatedTo": "@body('get_product_manager_contact')?['value']?[0]?['Email']",
+                    "CreatedDate": "@utcnow()",
+                    "VendorResponded": false
+                  }
+                },
+                "runAfter": {
+                  "send_escalation_email": [
+                    "Succeeded"
+                  ]
+                }
+              }
+            },
+            "runAfter": {
+              "condition_48_hours": [
+                "Succeeded",
+                "Skipped"
+              ]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "log_vendor_already_responded": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "referenceName": "sharepointonline"
+                  }
+                },
+                "method": "post",
+                "path": "/datasets/@{encodeURIComponent('QuoteTracking')}/tables/@{encodeURIComponent('Logs')}/items",
+                "body": {
+                  "QuoteId": "@triggerBody()?['quoteId']",
+                  "CustomerNumber": "@triggerBody()?['customerNumber']",
+                  "Status": "follow_up_suppressed_vendor_responded",
+                  "VendorEmail": "@triggerBody()?['vendorEmail']",
+                  "CreatedDate": "@utcnow()",
+                  "VendorResponded": true
+                }
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "check_vendor_response_status": [
+            "Succeeded"
+          ]
+        }
+      }
+    },
+    "outputs": {
+      "status": {
+        "type": "string",
+        "value": "@if(body('check_vendor_response_status')?['value']?[0]?['VendorResponded'], 'vendor_responded', if(equals(triggerBody()?['hoursElapsed'], 72), 'escalated', 'follow_up_sent'))"
+      }
+    }
+  }
+}

@@ -1,0 +1,309 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "definition": {
+    "triggers": {
+      "when_a_new_email_arrives": {
+        "type": "ApiConnectionWebhook",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "outlook"
+            }
+          },
+          "body": {
+            "NotificationUrl": "@{listCallbackUrl()}"
+          },
+          "path": "/GraphMailSubscriptionPoke/$subscriptions",
+          "queries": {
+            "folderPath": "Inbox",
+            "importance": "Any"
+          }
+        },
+        "conditions": [
+          {
+            "expression": "@contains(triggerBody()?['subject'], 'Quote Request')"
+          }
+        ]
+      }
+    },
+    "actions": {
+      "initialize_variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "customerNumber",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "name": "quoteId",
+              "type": "string",
+              "value": "@{guid()}"
+            },
+            {
+              "name": "processStatus",
+              "type": "string",
+              "value": "initiated"
+            },
+            {
+              "name": "errorMessages",
+              "type": "array",
+              "value": []
+            }
+          ]
+        }
+      },
+      "parse_email_content": {
+        "type": "Compose",
+        "inputs": {
+          "subject": "@triggerBody()?['subject']",
+          "body": "@triggerBody()?['body']",
+          "from": "@triggerBody()?['from']",
+          "attachments": "@triggerBody()?['attachments']"
+        },
+        "runAfter": {
+          "initialize_variables": [
+            "Succeeded"
+          ]
+        }
+      },
+      "extract_customer_number": {
+        "type": "Compose",
+        "inputs": "@first(split(last(split(outputs('parse_email_content')?['subject'], 'Customer:')), ' '))",
+        "runAfter": {
+          "parse_email_content": [
+            "Succeeded"
+          ]
+        }
+      },
+      "set_customer_number": {
+        "type": "SetVariable",
+        "inputs": {
+          "name": "customerNumber",
+          "value": "@outputs('extract_customer_number')"
+        },
+        "runAfter": {
+          "extract_customer_number": [
+            "Succeeded"
+          ]
+        }
+      },
+      "condition_valid_customer": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "not": {
+                "equals": [
+                  "@variables('customerNumber')",
+                  ""
+                ]
+              }
+            },
+            {
+              "greater": [
+                "@length(variables('customerNumber'))",
+                0
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "get_item_data_from_data_lake": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "azuredatalake"
+                }
+              },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent('ItemMasterTable')}/tables/@{encodeURIComponent('Items')}/items",
+              "queries": {
+                "$filter": "CustomerNumber eq '@{variables('customerNumber')}'"
+              }
+            }
+          },
+          "process_item_data": {
+            "type": "Select",
+            "inputs": {
+              "from": "@body('get_item_data_from_data_lake')?['value']",
+              "select": {
+                "itemNumber": "@item()?['ItemNo']",
+                "description": "@item()?['Description']",
+                "unitOfMeasure": "@item()?['UoM']",
+                "cost": "@item()?['Cost']",
+                "price": "@item()?['Price']",
+                "vendorId": "@item()?['VendorId']"
+              }
+            },
+            "runAfter": {
+              "get_item_data_from_data_lake": [
+                "Succeeded"
+              ]
+            }
+          },
+          "get_vendor_contacts": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "sharepointonline"
+                }
+              },
+              "method": "get",
+              "path": "/datasets/@{encodeURIComponent('VendorContacts')}/tables/@{encodeURIComponent('Contacts')}/items"
+            },
+            "runAfter": {
+              "process_item_data": [
+                "Succeeded"
+              ]
+            }
+          },
+          "create_quote_document": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "excelonline"
+                }
+              },
+              "method": "post",
+              "path": "/api/templates/quote-template.xlsx/copy",
+              "body": {
+                "fileName": "Quote_@{variables('customerNumber')}_@{variables('quoteId')}.xlsx",
+                "itemData": "@outputs('process_item_data')"
+              }
+            },
+            "runAfter": {
+              "get_vendor_contacts": [
+                "Succeeded"
+              ]
+            }
+          },
+          "send_vendor_email": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "outlook"
+                }
+              },
+              "method": "post",
+              "path": "/Mail",
+              "body": {
+                "To": "@{body('get_vendor_contacts')?['value']?[0]?['Email']}",
+                "Subject": "Quote Request - Customer @{variables('customerNumber')} - @{variables('quoteId')}",
+                "Body": "@{variables('emailTemplate')}",
+                "Attachments": [
+                  {
+                    "Name": "@{outputs('create_quote_document')?['fileName']}",
+                    "ContentBytes": "@{outputs('create_quote_document')?['content']}"
+                  }
+                ]
+              }
+            },
+            "runAfter": {
+              "create_quote_document": [
+                "Succeeded"
+              ]
+            }
+          },
+          "log_initial_send": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "sharepointonline"
+                }
+              },
+              "method": "post",
+              "path": "/datasets/@{encodeURIComponent('QuoteTracking')}/tables/@{encodeURIComponent('Logs')}/items",
+              "body": {
+                "QuoteId": "@variables('quoteId')",
+                "CustomerNumber": "@variables('customerNumber')",
+                "Status": "email_sent",
+                "VendorEmail": "@{body('get_vendor_contacts')?['value']?[0]?['Email']}",
+                "CreatedDate": "@utcnow()",
+                "VendorResponded": false
+              }
+            },
+            "runAfter": {
+              "send_vendor_email": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "append_error_invalid_customer": {
+              "type": "AppendToArrayVariable",
+              "inputs": {
+                "name": "errorMessages",
+                "value": "Invalid or missing customer number in email subject"
+              }
+            },
+            "send_error_notification": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "referenceName": "outlook"
+                  }
+                },
+                "method": "post",
+                "path": "/Mail",
+                "body": {
+                  "To": "@{parameters('adminEmail')}",
+                  "Subject": "Quote Processing Error - Invalid Customer Number",
+                  "Body": "Error processing quote request. Customer number not found in email: @{triggerBody()?['subject']}"
+                }
+              },
+              "runAfter": {
+                "append_error_invalid_customer": [
+                  "Succeeded"
+                ]
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "set_customer_number": [
+            "Succeeded"
+          ]
+        }
+      }
+    },
+    "outputs": {
+      "quoteId": {
+        "type": "string",
+        "value": "@variables('quoteId')"
+      },
+      "processStatus": {
+        "type": "string",
+        "value": "@variables('processStatus')"
+      },
+      "errorMessages": {
+        "type": "array",
+        "value": "@variables('errorMessages')"
+      }
+    }
+  },
+  "parameters": {
+    "adminEmail": {
+      "defaultValue": "admin@company.com",
+      "type": "String"
+    },
+    "dataLakeConnectionString": {
+      "defaultValue": "",
+      "type": "SecureString"
+    },
+    "vendorContactsListId": {
+      "defaultValue": "",
+      "type": "String"
+    }
+  }
+}

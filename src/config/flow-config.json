@@ -1,0 +1,47 @@
+{
+  "environment": "production",
+  "email": {
+    "quoteRequestKeywords": ["Quote Request", "RFQ", "Request for Quote"],
+    "customerNumberPattern": "Customer:\\s*([A-Z0-9]+)",
+    "adminEmail": "admin@company.com",
+    "systemEmail": "oem-quotes@company.com"
+  },
+  "timing": {
+    "followUpHours": 48,
+    "escalationHours": 72,
+    "maxRetryAttempts": 3,
+    "retryDelayMinutes": 15
+  },
+  "dataLake": {
+    "itemMasterTable": "ItemMasterTable",
+    "itemsTable": "Items",
+    "connectionTimeout": 30,
+    "batchSize": 100
+  },
+  "sharePoint": {
+    "vendorContactsList": "VendorContacts",
+    "quoteTrackingList": "QuoteTracking",
+    "documentsLibrary": "QuoteDocuments",
+    "siteUrl": "https://company.sharepoint.com/sites/oem"
+  },
+  "excel": {
+    "templatePath": "/templates/quote-template.xlsx",
+    "outputPath": "/generated-quotes/",
+    "maxFileSize": 10485760
+  },
+  "logging": {
+    "level": "INFO",
+    "enableDetailedLogging": true,
+    "logRetentionDays": 90
+  },
+  "validation": {
+    "requiredFields": ["customerNumber", "itemNumber", "vendorId"],
+    "maxCustomerNumberLength": 20,
+    "maxItemsPerQuote": 500
+  },
+  "errorHandling": {
+    "enableRetries": true,
+    "notifyOnError": true,
+    "fallbackVendorEmail": "fallback@company.com"
+  }
+}
