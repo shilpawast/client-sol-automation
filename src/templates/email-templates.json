@@ -1,0 +1,59 @@
+{
+  "emailTemplates": {
+    "initialVendorRequest": {
+      "subject": "Quote Request - Customer {{customerNumber}} - {{quoteId}}",
+      "body": "Dear Vendor,\n\nWe have a quote request for the following customer:\n\nCustomer Number: {{customerNumber}}\nQuote ID: {{quoteId}}\nRequest Date: {{requestDate}}\n\nPlease find the detailed quote request attached. We would appreciate your response within 48 hours.\n\nIf you need any additional information, please don't hesitate to contact us.\n\nBest regards,\nOEM Quote Management Team\n\nNote: This is an automated message. If you have already provided this quote through other means (phone, separate email), please reply to this email with 'QUOTE PROVIDED' to avoid follow-up messages."
+    },
+    "followUpReminder": {
+      "subject": "Follow-up: Quote Request - Customer {{customerNumber}} - {{quoteId}}",
+      "body": "Dear Vendor,\n\nThis is a follow-up on the quote request we sent {{hoursElapsed}} hours ago for:\n\nCustomer Number: {{customerNumber}}\nQuote ID: {{quoteId}}\nOriginal Request Date: {{requestDate}}\n\nIf you have already provided the quote through other means (phone, separate email), please ignore this automated follow-up.\n\nOtherwise, we would appreciate your response at your earliest convenience.\n\nThank you,\nOEM Quote Management Team"
+    },
+    "escalationNotice": {
+      "subject": "ESCALATION: Quote Request - Customer {{customerNumber}} - {{quoteId}}",
+      "body": "Dear Product Manager,\n\nWe are escalating this quote request as we have not received a response after {{hoursElapsed}} hours.\n\nDetails:\n- Customer Number: {{customerNumber}}\n- Quote ID: {{quoteId}}\n- Original Request Date: {{requestDate}}\n- Vendor Contact: {{vendorEmail}}\n- Follow-ups Sent: {{followUpCount}}\n\nPlease follow up on this quote request urgently.\n\nThank you,\nOEM Quote Management System"
+    },
+    "errorNotification": {
+      "subject": "Quote Processing Error - {{errorType}}",
+      "body": "An error occurred while processing a quote request:\n\nError Type: {{errorType}}\nError Details: {{errorDetails}}\nQuote ID: {{quoteId}}\nCustomer Number: {{customerNumber}}\nTimestamp: {{timestamp}}\n\nPlease review and take appropriate action.\n\nOEM Quote Management System"
+    }
+  },
+  "excelTemplateMapping": {
+    "customerInfo": {
+      "customerNumber": "B2",
+      "customerName": "B3",
+      "requestDate": "B4",
+      "quoteId": "B5"
+    },
+    "itemDetails": {
+      "startRow": 8,
+      "columns": {
+        "itemNumber": "A",
+        "description": "B",
+        "unitOfMeasure": "C",
+        "quantity": "D",
+        "unitCost": "E",
+        "unitPrice": "F",
+        "totalPrice": "G"
+      }
+    },
+    "vendorInfo": {
+      "vendorName": "F2",
+      "vendorContact": "F3",
+      "vendorEmail": "F4"
+    }
+  },
+  "validationRules": {
+    "customerNumber": {
+      "pattern": "^[A-Z0-9]{3,20}$",
+      "errorMessage": "Customer number must be 3-20 alphanumeric characters"
+    },
+    "itemNumber": {
+      "pattern": "^[A-Z0-9-]{5,30}$",
+      "errorMessage": "Item number must be 5-30 characters with letters, numbers, and hyphens"
+    },
+    "email": {
+      "pattern": "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$",
+      "errorMessage": "Invalid email format"
+    }
+  }
+}
